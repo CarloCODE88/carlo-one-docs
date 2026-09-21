@@ -10,6 +10,8 @@ Public documentation, verified architecture notes, and operational references fo
 ## Architecture
 
 - [triAI-Engine architecture](./architecture/TRIAI-ENGINE-ARCHITECTURE.md)
+- [Fusion foundation plan](./architecture/FUSION-FOUNDATION-PLAN.md)
+- [CTO review prompt](./architecture/CTO-REVIEW-PROMPT.md)
 
 ## Operations
 
