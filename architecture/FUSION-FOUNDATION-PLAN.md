@@ -170,7 +170,7 @@ Files and repos
 - `carlo-one-docs/architecture/TECHNICAL-BASELINE.md`
 - `carlo-one-docs/architecture/TRIAI-ENGINE-ARCHITECTURE.md`
 - `carlo-one-docs/operations/HIXX-SERVER-ARCHITECTURE-AND-OPERATIONS.md`
-- existing local project folders under `/home/carlos/PROJEKTE/triAI-Engine` and `/home/carlos/PROJEKTE/hixx-native`
+- the team repository `carlo-one-core`, which now carries both imports: `triAI-Engine/` and `hixx-native/` (source of truth for HIXX is `carlo-one-core/hixx-native` @ abefbc1, per `BACKEND-SOURCE-INVENTORY.md`; the owner's local `/home/carlos/PROJEKTE/...` folders are superseded as reference locations)
 
 Prerequisites
 
@@ -251,9 +251,8 @@ Keep HIXX from drifting into an accidental production dependency while preservin
 
 Files and repos
 
-- `hixx-native/src/*`
-- `hixx-native/kernel/*`
-- `carlo-one-docs/operations/HIXX-SERVER-ARCHITECTURE-AND-OPERATIONS.md`
+- `carlo-one-core/hixx-native/` @ abefbc1 — the team repository is the source of truth (covers `hixx-native/src/*` and `hixx-native/kernel/*`); line numbers cited below refer to this commit
+- `carlo-one-docs/operations/HIXX-SERVER-ARCHITECTURE-AND-OPERATIONS.md` (behavioral reference only; its `/home/carlos/PROJEKTE/hixx-native` path references are superseded by the team repo)
 
 Prerequisites
 
@@ -261,17 +260,19 @@ Prerequisites
 
 Implementation tasks
 
-- rename HIXX module/device to a unique namespace if kept
-- define a versioned shared-memory contract and explicit queue ownership
+- rename HIXX module/device to a unique namespace if kept (candidate: `hixx_ipc_worker` / `/dev/hixx_ipc_worker`). Verified rename scope @ abefbc1: the `tri_ai` string occurs in exactly 4 files — `src/ipc.rs` (DEVICE_PATH), `kernel/tri_ai_worker.c` (DEVICE_NAME), `kernel/Makefile` (obj-m target), root `Makefile` (rmmod/insmod/chgrp/chmod/status targets); the ABI values (magic 0x48, commands 0x00004800/0x00004801/0x80044802) are unaffected by a pure name rename.
+- extend the Rust ABI test (`src/ipc.rs`, `ioctl_encodings_match_linux_layout` — exists and pins the three hex values, but only against the Rust-side derivation) to also cover the C-side encoding: the values are duplicated, not shared — Rust derives them via a const fn from magic 0x48 (`src/ipc.rs`), C via `_IO`/`_IOR` macros from the same magic (`kernel/tri_ai_worker.c`); there is no shared header. Establish a single source of truth (checked-in ABI header or a golden-value test covering magic, direction, and size encoding) as part of this task.
+- define a versioned shared-memory contract and explicit queue ownership. Verified constraints @ abefbc1: mmap is fixed to offset 0 and exactly 4 MiB (`kernel/tri_ai_worker.c` mmap check, `src/ipc.rs` RING_BUFFER_SIZE); the mapping exposes no head/tail and no slots — SUBMIT only increments a kernel-side counter and the 4 MiB buffer stays zeroed (`kernel/tri_ai_worker.c`); no struct in the contract carries a version or reserved field, so future ring/queue layouts cannot evolve in place and must be defined fresh.
 - add a result path and job lifecycle state
-- separate experimental mode from real production mode
-- archive or explicitly assign the legacy alternative driver
+- separate experimental mode from real production mode. Verified today: POST `/v1/chat/completions` never reads the request body and returns a canned 202 with a fabricated `chat.completion` object (`src/api.rs`); HTTP 503 is mapped only for IPC submit/status ioctl failures (`src/api.rs`, chat and status handlers); `/health` reports ok without probing the kernel (`src/api.rs`). An honest 202 must return an accepted-task envelope (job id plus status pointer), not a fake completion; the request structs in `src/ipc/structs.rs` are currently unused by the HTTP path.
+- archive the legacy alternative driver. Verified disposition @ abefbc1: `kernel/hixx_worker.c` is not referenced by any Makefile, speaks a different ABI (magic 'h'/0x68 with LOAD_MODEL/RUN_INFERENCE/GET_METRICS/RINGPTR ioctls), has no `.mmap` op, uses the pre-6.4 `class_create(THIS_MODULE, ...)` signature (cannot build against the same kernel headers as the operative module), and calls `virt_to_phys()` on vmalloc memory. Recommended: move it to `kernel/attic/` with a note marking it design reference for the versioned queue contract — keep as reference, do not maintain as a module, do not delete.
 
 Verification criteria
 
-- the kernel and userspace contract are explicit and tested
-- no collision exists with triAI's existing module and device path
+- the kernel and userspace contract are explicit and tested: `grep -rn "tri_ai" carlo-one-core/hixx-native/` returns no matches (rename complete), and the extended Rust ABI test passes against the shared/mapped hex values (magic 0x48, 0x00004800, 0x00004801, 0x80044802)
+- no collision exists with triAI's existing module and device path (`triAI-Engine/kernel/tri_ai_worker.c` registers the same module/device name today)
 - status, queue depth, worker state, and error propagation are deterministic
+- machine split for this phase: userspace code work (ABI test extension, `cargo test` on the hixx crate in dev profile) runs on the team box; kernel build (`kernel/Makefile` requires clang/ld.lld and kernel headers), `make load` (root, insmod), the 4 MiB mmap smoke, and `scripts/hixx_tune_system.sh` (allocates 2048 hugepages ≈ 4 GiB — exceeds team-box RAM) run only on the owner's GPU machine. Note the root `make rust`/`make all` targets do `cargo build --release` with LTO — release/LTO builds are owner-machine territory; team-box verification is `cargo test`, not `make rust`.
 
 Risks
 

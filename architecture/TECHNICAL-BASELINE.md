@@ -31,6 +31,8 @@ The engine's userspace path is the integration priority. Kernel experiments are 
 
 It does not yet define a real queue protocol, consume work, parse chat bodies semantically, run inference, or return generated results.
 
+Source of truth: `hixx-native` now lives in the team repository at `carlo-one-core/hixx-native` @ abefbc1 (state of 15.09., verified; README carries the baseline label). `operations/HIXX-SERVER-ARCHITECTURE-AND-OPERATIONS.md` remains the behavioral reference.
+
 ## Non-negotiable integration boundary
 
 The triAI and HIXX kernel modules currently use the same module/device names but incompatible ABIs. They must not be loaded or treated as interchangeable. Before any integration, either:
